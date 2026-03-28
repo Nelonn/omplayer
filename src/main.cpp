@@ -57,7 +57,7 @@ auto SDL_AppInit(void **appstate, int argc, char *argv[]) -> SDL_AppResult {
   ImGui_ImplSDLGPU3_Init(&init_info);
 
   state->player.setDevice(state->device);
-  state->ui = std::make_unique<PlayerUI>(state->player);
+  state->ui = std::make_unique<PlayerUI>(state->player, state->window);
 
   if (argc > 1) {
     state->player.play(argv[1]);

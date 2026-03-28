@@ -11,6 +11,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <openmedia/audio.hpp>
@@ -178,6 +179,10 @@ static auto buildPixels(const Picture& pic) -> std::vector<uint32_t> {
 class MediaPlayer {
 public:
     std::string current_file;
+    
+    // Callback type for when media dimensions are known
+    using OnMediaSizeCallback = void(uint32_t width, uint32_t height);
+    std::function<OnMediaSizeCallback> onMediaSize;
 
     MediaPlayer() {
         format_detector_.addAllStandard();
@@ -472,13 +477,17 @@ private:
         clock_.setMode(AVClock::Mode::WALL);
         clock_.reset(0.0);
         video_time_base_ = track.time_base;
-        total_duration_secs_ = static_cast<double>(track.duration) * 
+        total_duration_secs_ = static_cast<double>(track.duration) *
                                track.time_base.num / track.time_base.den;
         has_video_       = true;
         SDL_Log("[Player] Video %dx%d codec=%s tb=%d/%d",
                 track.format.image.width, track.format.image.height,
                 getCodecMeta(track.format.codec_id).name.data(),
                 track.time_base.num, track.time_base.den);
+        
+        if (onMediaSize) {
+            onMediaSize(track.format.image.width, track.format.image.height);
+        }
     }
 
     void setupAudioDecoder(const Track& track) {
@@ -500,9 +509,13 @@ private:
         if (!makeDecoder(track, video_decoder_)) return;
         image_width_    = track.format.image.width;
         image_height_   = track.format.image.height;
-        total_duration_secs_ = static_cast<double>(track.duration) * 
+        total_duration_secs_ = static_cast<double>(track.duration) *
                                track.time_base.num / track.time_base.den;
         decodeAndShowImage();
+        
+        if (onMediaSize) {
+            onMediaSize(image_width_, image_height_);
+        }
     }
 
     // -----------------------------------------------------------------------
