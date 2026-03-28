@@ -28,6 +28,11 @@ public:
   static constexpr double kLowThresh = 0.20;
   static constexpr double kHighThresh = 0.80;
   static constexpr double kStartThresh = 0.30;
+  
+  // Audio delay to account for SDL hardware buffer latency.
+  // This ensures video syncs to what's actually heard, not what's in the buffer.
+  //static constexpr double kAudioDelaySec = 0.080; // 80ms typical hardware latency
+  static constexpr double kAudioDelaySec = 0.5;
 
   ~AudioSink() { close(); }
 
@@ -143,7 +148,10 @@ public:
 
     if (pushed >= total_in_pipe && sample_rate_ > 0 && frame_bytes_ > 0) {
       const uint64_t bytes_played = pushed - total_in_pipe;
-      const double clock_sec = start + static_cast<double>(bytes_played) / (sample_rate_ * frame_bytes_);
+      double clock_sec = start + static_cast<double>(bytes_played) / (sample_rate_ * frame_bytes_);
+      // Subtract audio delay to sync video to what's actually heard,
+      // not what's still in SDL's hardware buffer.
+      clock_sec -= kAudioDelaySec;
       clock_->setAudioSeconds(clock_sec);
     }
   }

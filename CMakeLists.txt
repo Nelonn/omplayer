@@ -26,6 +26,8 @@ add_executable(omplayer WIN32
         src/main.cpp
         src/media_player.hpp
         src/ring_buffer.hpp
+        src/SincResampler.cpp
+        src/SincResampler.h
         src/ui.hpp
         src/video_renderer.hpp
 )

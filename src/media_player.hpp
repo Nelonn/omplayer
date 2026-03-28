@@ -498,7 +498,16 @@ private:
 
   void setupVideoDecoder(const Track& track) {
     if (!makeDecoder(track, video_decoder_)) return;
-    clock_.setMode(AVClock::Mode::WALL);
+    
+    // Clock mode: AUDIO if we have audio (video syncs to audio), 
+    // otherwise WALL for video-only files.
+    // Check audio_stream_index_ since has_audio_ isn't set yet.
+    if (audio_stream_index_ >= 0) {
+      clock_.setMode(AVClock::Mode::AUDIO);
+    } else {
+      clock_.setMode(AVClock::Mode::WALL);
+    }
+    
     clock_.reset(0.0);
     video_time_base_ = track.time_base;
     total_duration_secs_ = static_cast<double>(track.duration) *
