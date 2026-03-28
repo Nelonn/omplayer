@@ -135,8 +135,11 @@ public:
     }
 
     const size_t ring_queued = ring_->currentSize();
-    const int stream_queued = SDL_GetAudioStreamQueued(stream_);
-    const uint64_t total_in_pipe = static_cast<uint64_t>(ring_queued + (stream_queued > 0 ? stream_queued : 0));
+    const int stream_queued_samples = SDL_GetAudioStreamQueued(stream_);
+    const size_t stream_queued_bytes = stream_queued_samples > 0
+        ? static_cast<size_t>(stream_queued_samples) * frame_bytes_
+        : 0;
+    const uint64_t total_in_pipe = static_cast<uint64_t>(ring_queued + stream_queued_bytes);
 
     if (pushed >= total_in_pipe && sample_rate_ > 0 && frame_bytes_ > 0) {
       const uint64_t bytes_played = pushed - total_in_pipe;
@@ -203,11 +206,9 @@ private:
       tmp_buf_.resize(to_read);
       const size_t n = ring_->read(tmp_buf_.data(), to_read);
       SDL_PutAudioStreamData(stream, tmp_buf_.data(), static_cast<int>(n));
-    } else {
-      // Underrun – push silence to avoid SDL starvation.
-      silence_buf_.assign(static_cast<size_t>(need), 0);
-      SDL_PutAudioStreamData(stream, silence_buf_.data(), need);
     }
+    // If no data available, do nothing - let SDL handle the underrun.
+    // Injecting silence causes gaps in playback.
   }
 
   AVClock* clock_ = nullptr;

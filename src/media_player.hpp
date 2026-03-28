@@ -664,12 +664,17 @@ private:
         auto pcm = detail::normaliseBits(
             detail::interleave(s), s.format.bits_per_sample);
 
+        // Push all PCM data without artificial delays.
+        // The ring buffer's hysteresis controls the flow.
         size_t written = 0;
         while (written < pcm.size() && !stop_requested_) {
-          written += audio_sink_.pushPcm(
+          const size_t n = audio_sink_.pushPcm(
               pcm.data() + written, pcm.size() - written);
-          if (written < pcm.size())
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+          written += n;
+          if (n == 0) {
+            // Buffer is full, yield briefly instead of sleeping.
+            std::this_thread::yield();
+          }
         }
 
         const double pts_sec = static_cast<double>(frame.pts) *
