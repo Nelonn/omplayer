@@ -1,0 +1,13 @@
+
+Checks: '-*,readability-identifier-naming,modernize-use-trailing-return-type'
+CheckOptions:
+  readability-identifier-naming.ClassCase: 'CamelCase'
+  readability-identifier-naming.ConstexprVariableCase: 'UPPER_CASE'
+  readability-identifier-naming.LocalVariableCase: 'lower_case'
+  readability-identifier-naming.ClassMemberCase: 'lower_case'
+  readability-identifier-naming.GlobalVariableCase: 'UPPER_CASE'
+  #readability-identifier-naming.FunctionCase: 'camelBack'
+  #readability-identifier-naming.MethodCase: 'camelBack'
+  readability-identifier-naming.PrivateMemberCase: 'lower_case'
+  readability-identifier-naming.PrivateMemberSuffix: '_'
+  modernize-use-trailing-return-type: true

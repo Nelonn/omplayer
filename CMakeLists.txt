@@ -30,3 +30,4 @@ add_executable(omplayer WIN32
         src/video_renderer.hpp
 )
 target_link_libraries(omplayer PRIVATE SDL3::SDL3 OpenMedia::OpenMedia ImGui)
+target_compile_definitions(omplayer PRIVATE SDL_MAIN_USE_CALLBACKS)

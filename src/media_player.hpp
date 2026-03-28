@@ -187,9 +187,9 @@ public:
 
     ~MediaPlayer() { stop(); }
 
-    void setRenderer(SDL_Renderer* r) {
-        renderer_ = r;
-        video_renderer_.setRenderer(r);
+    void setDevice(SDL_GPUDevice* d) {
+        device_ = d;
+        video_renderer_.setDevice(d);
     }
 
     // -----------------------------------------------------------------------
@@ -220,7 +220,7 @@ public:
         video_decoder_.reset();
 
         if (image_texture_) {
-            SDL_DestroyTexture(image_texture_);
+            SDL_ReleaseGPUTexture(device_, image_texture_);
             image_texture_ = nullptr;
         }
 
@@ -330,12 +330,12 @@ public:
     auto getClockSeconds() const -> double { return clock_.masterSeconds(); }
     auto getDurationSeconds() const -> double { return total_duration_secs_; }
 
-    auto getVideoTexture() -> SDL_Texture* { return video_renderer_.texture(); }
+    auto getVideoTexture() -> SDL_GPUTexture* { return video_renderer_.texture(); }
     auto getVideoSize() const -> std::pair<uint32_t, uint32_t> {
         return {video_renderer_.textureWidth(), video_renderer_.textureHeight()};
     }
 
-    auto getImageTexture() -> SDL_Texture* {
+    auto getImageTexture() -> SDL_GPUTexture* {
         std::lock_guard<std::mutex> lock(image_mutex_);
         return image_texture_;
     }
@@ -371,7 +371,7 @@ private:
     AVClock       clock_;
     AudioSink     audio_sink_;
     VideoRenderer video_renderer_;
-    SDL_Renderer* renderer_ = nullptr;
+    SDL_GPUDevice* device_ = nullptr;
 
     // Packet queues (demux thread → decoder threads)
     static constexpr size_t kPacketQueueCapacity = 64;
@@ -389,7 +389,7 @@ private:
     bool has_video_ = false;
 
     // Image state
-    SDL_Texture*       image_texture_ = nullptr;
+    SDL_GPUTexture*    image_texture_ = nullptr;
     mutable std::mutex image_mutex_;
     uint32_t           image_width_   = 0;
     uint32_t           image_height_  = 0;
@@ -749,7 +749,7 @@ private:
     // -----------------------------------------------------------------------
 
     void decodeAndShowImage() {
-        if (!video_decoder_ || !renderer_) return;
+        if (!video_decoder_ || !device_) return;
         auto res = demuxer_->readPacket();
         if (res.isErr()) return;
 
@@ -764,18 +764,51 @@ private:
 
         std::lock_guard<std::mutex> lock(image_mutex_);
         if (image_texture_) {
-            SDL_DestroyTexture(image_texture_);
+            SDL_ReleaseGPUTexture(device_, image_texture_);
             image_texture_ = nullptr;
         }
-        image_texture_ = SDL_CreateTexture(
-            renderer_,
-            SDL_PIXELFORMAT_ABGR8888,
-            SDL_TEXTUREACCESS_STATIC,
-            int(pic.width), int(pic.height));
+
+        SDL_GPUTextureCreateInfo texture_info = {};
+        texture_info.type = SDL_GPU_TEXTURETYPE_2D;
+        texture_info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        texture_info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        texture_info.width = pic.width;
+        texture_info.height = pic.height;
+        texture_info.layer_count_or_depth = 1;
+        texture_info.num_levels = 1;
+        texture_info.sample_count = SDL_GPU_SAMPLECOUNT_1;
+        image_texture_ = SDL_CreateGPUTexture(device_, &texture_info);
+        
         if (!image_texture_) return;
 
-        SDL_UpdateTexture(image_texture_, nullptr, pix.data(),
-                          int(pic.width * sizeof(uint32_t)));
+        uint32_t size = pic.width * pic.height * 4;
+        SDL_GPUTransferBufferCreateInfo tb_info = {};
+        tb_info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        tb_info.size = size;
+        SDL_GPUTransferBuffer* tb = SDL_CreateGPUTransferBuffer(device_, &tb_info);
+        
+        void* data = SDL_MapGPUTransferBuffer(device_, tb, false);
+        std::memcpy(data, pix.data(), size);
+        SDL_UnmapGPUTransferBuffer(device_, tb);
+
+        SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device_);
+        SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(cmd);
+        
+        SDL_GPUTextureTransferInfo src = {};
+        src.transfer_buffer = tb;
+        
+        SDL_GPUTextureRegion dst = {};
+        dst.texture = image_texture_;
+        dst.w = pic.width;
+        dst.h = pic.height;
+        dst.d = 1;
+        
+        SDL_UploadToGPUTexture(copy, &src, &dst, false);
+        SDL_EndGPUCopyPass(copy);
+        SDL_SubmitGPUCommandBuffer(cmd);
+        
+        SDL_ReleaseGPUTransferBuffer(device_, tb);
+
         image_width_  = pic.width;
         image_height_ = pic.height;
         has_image_    = true;
