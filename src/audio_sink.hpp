@@ -35,8 +35,8 @@ public:
   // Open the device for a given PCM format.
   // `clock` must outlive AudioSink.
   // -----------------------------------------------------------------------
-  bool open(SDL_AudioFormat sdl_fmt, int channels, int sample_rate,
-            size_t bytes_per_sample, AVClock* clock) {
+  auto open(SDL_AudioFormat sdl_fmt, int channels, int sample_rate,
+            size_t bytes_per_sample, AVClock* clock) -> bool {
     close();
 
     clock_ = clock;
@@ -46,7 +46,7 @@ public:
     frame_bytes_ = bps_ * static_cast<size_t>(channels);
 
     // 2-second ring buffer
-    ring_ = std::make_unique<RingBuffer>(
+    ring_ = std::make_unique<RingBuffer<uint8_t>>(
         static_cast<size_t>(sample_rate) * 2 * frame_bytes_);
 
     SDL_AudioSpec spec {};
@@ -96,23 +96,55 @@ public:
 
   // Push interleaved PCM bytes into the ring buffer.
   // Returns bytes written (may be partial if full).
-  size_t pushPcm(const uint8_t* data, size_t len) {
+  auto pushPcm(const uint8_t* data, size_t len) -> size_t {
     if (!ring_) return 0;
-    return ring_->write(data, len);
+    size_t written = ring_->write(data, len);
+    {
+      std::lock_guard<std::mutex> lock(sync_mutex_);
+      total_bytes_pushed_ += written;
+    }
+    return written;
   }
 
   // Poll buffering state; returns true once playback has started.
   // Call this after pushing audio data.
-  bool tickBuffering(double current_seconds) {
+  auto tickBuffering(double current_seconds) -> bool {
     if (!open_ || started_ || !ring_) return false;
     const double ratio = ring_->fillRatio();
     if (ratio >= kStartThresh) {
+      {
+        std::lock_guard<std::mutex> lock(sync_mutex_);
+        if (start_pts_ < 0) start_pts_ = current_seconds;
+      }
+      last_stream_pts_sec_.store(current_seconds, std::memory_order_release);
       clock_->setAudioSeconds(current_seconds);
       SDL_ResumeAudioDevice(device_);
       started_ = true;
       SDL_Log("[AudioSink] Playback started (fill=%.1f%%)", ratio * 100.0);
     }
     return started_;
+  }
+
+  void updateClock() {
+    if (!started_ || !clock_ || !ring_) return;
+
+    double start;
+    uint64_t pushed;
+    {
+      std::lock_guard<std::mutex> lock(sync_mutex_);
+      start = start_pts_;
+      pushed = total_bytes_pushed_;
+    }
+
+    const size_t ring_queued = ring_->currentSize();
+    const int stream_queued = SDL_GetAudioStreamQueued(stream_);
+    const uint64_t total_in_pipe = static_cast<uint64_t>(ring_queued + (stream_queued > 0 ? stream_queued : 0));
+
+    if (pushed >= total_in_pipe && sample_rate_ > 0 && frame_bytes_ > 0) {
+      const uint64_t bytes_played = pushed - total_in_pipe;
+      const double clock_sec = start + static_cast<double>(bytes_played) / (sample_rate_ * frame_bytes_);
+      clock_->setAudioSeconds(clock_sec);
+    }
   }
 
   // Pause/resume for seek.
@@ -125,6 +157,11 @@ public:
 
   void clearBuffer() {
     if (ring_) ring_->clear();
+    {
+      std::lock_guard<std::mutex> lock(sync_mutex_);
+      start_pts_ = -1.0;
+      total_bytes_pushed_ = 0;
+    }
     started_ = false;
   }
 
@@ -133,16 +170,22 @@ public:
     if (device_) SDL_SetAudioDeviceGain(device_, gain_);
   }
 
-  float gain() const { return gain_; }
-  bool isOpen() const { return open_; }
-  bool started() const { return started_; }
+  auto gain() const -> float { return gain_; }
+  auto isOpen() const -> bool { return open_; }
+  auto started() const -> bool { return started_; }
+
+  double start_pts_ = -1.0;
+  uint64_t total_bytes_pushed_ = 0;
+  mutable std::mutex sync_mutex_;
+
+  std::atomic<double> last_stream_pts_sec_ {0.0};
 
   // True when worker should produce more audio data.
-  bool needsData() const {
+  auto needsData() const -> bool {
     return !ring_ || ring_->fillRatio() < kHighThresh;
   }
 
-  double fillRatio() const {
+  auto fillRatio() const -> double {
     return ring_ ? ring_->fillRatio() : 0.0;
   }
 
@@ -162,12 +205,6 @@ private:
       tmp_buf_.resize(to_read);
       const size_t n = ring_->read(tmp_buf_.data(), to_read);
       SDL_PutAudioStreamData(stream, tmp_buf_.data(), static_cast<int>(n));
-
-      // Advance the master clock by the number of PCM frames consumed.
-      if (sample_rate_ > 0 && frame_bytes_ > 0) {
-        const double secs_consumed = static_cast<double>(n) / (sample_rate_ * frame_bytes_);
-        clock_->audioAdvance(secs_consumed);
-      }
     } else {
       // Underrun – push silence to avoid SDL starvation.
       silence_buf_.assign(static_cast<size_t>(need), 0);
@@ -178,7 +215,7 @@ private:
   AVClock* clock_ = nullptr;
   SDL_AudioDeviceID device_ = 0;
   SDL_AudioStream* stream_ = nullptr;
-  std::unique_ptr<RingBuffer> ring_;
+  std::unique_ptr<RingBuffer<uint8_t>> ring_;
 
   int sample_rate_ = 0;
   int channels_ = 0;
