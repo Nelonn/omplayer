@@ -29,6 +29,24 @@ public:
         player_.play(e.drop.data);
         break;
 
+      case SDL_EVENT_MOUSE_BUTTON_UP:
+        // Right click to toggle pause/play
+        if (e.button.button == SDL_BUTTON_RIGHT && player_.isActive()) {
+          player_.togglePause();
+        }
+        break;
+
+      case SDL_EVENT_MOUSE_WHEEL:
+        // Scroll to change volume in 2% steps (round to integer for discrete steps)
+        if (player_.isActive()) {
+          float current_volume = player_.getVolume();
+          int scroll_steps = static_cast<int>(std::round(static_cast<double>(e.wheel.y)));
+          float step = 0.02f * static_cast<float>(scroll_steps);
+          float new_volume = std::clamp(current_volume + step, 0.0f, 1.5f);
+          player_.setVolume(new_volume);
+        }
+        break;
+
       default: break;
     }
     return true;

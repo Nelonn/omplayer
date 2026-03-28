@@ -239,6 +239,7 @@ public:
         image_stream_index_ = -1;
         total_duration_secs_ = 0;
         stop_requested_     = false;
+        paused_             = false;
     }
 
     auto play(const std::string& path) -> bool {
@@ -286,6 +287,20 @@ public:
         volume_ = std::clamp(v, 0.0f, 1.5f);
         audio_sink_.setGain(volume_);
     }
+
+    void togglePause() {
+        if (!demuxer_) return;
+        paused_ = !paused_;
+        if (paused_) {
+            audio_sink_.pause();
+            clock_.pause();
+        } else {
+            audio_sink_.resume();
+            clock_.resume();
+        }
+    }
+
+    auto isPaused() const -> bool { return paused_; }
 
     void seek(float progress) {
         if (!demuxer_ || total_duration_secs_ <= 0) return;
@@ -408,6 +423,7 @@ private:
     std::thread       audio_decoder_thread_;
     std::thread       video_decoder_thread_;
     std::atomic<bool> stop_requested_ {false};
+    bool              paused_          = false;
 
     // Seek coordination (used only by demux thread and seek() caller)
     std::mutex              seek_mutex_;
