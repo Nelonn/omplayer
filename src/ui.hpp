@@ -34,6 +34,32 @@ public:
         if (e.button.button == SDL_BUTTON_RIGHT && player_.isActive()) {
           player_.togglePause();
         }
+        // Left click on control bar area for seeking
+        else if (e.button.button == SDL_BUTTON_LEFT && player_.isActive()) {
+          int win_w, win_h;
+          SDL_GetWindowSize(window_, &win_w, &win_h);
+          constexpr float bar_height = 48.0f;
+          constexpr float bar_margin = 12.0f;
+          constexpr float progress_bar_height = 4.0f;
+          constexpr float padding = 12.0f;
+          constexpr float time_width = 60.0f;
+          constexpr float control_bar_max_width = 600.0f;
+          
+          float bar_width = std::min(static_cast<float>(win_w) - bar_margin * 2.0f, control_bar_max_width);
+          float bar_x = (static_cast<float>(win_w) - bar_width) * 0.5f;
+          float bar_y = static_cast<float>(win_h) - bar_height - bar_margin;
+          float progress_bar_x = bar_x + padding + time_width;
+          float progress_bar_w = bar_width - padding * 2.0f - time_width * 2.0f;
+          float progress_bar_y = bar_y + (bar_height - progress_bar_height) * 0.5f;
+          
+          if (e.button.y >= progress_bar_y && e.button.y <= static_cast<int>(progress_bar_y + progress_bar_height)) {
+            if (e.button.x >= progress_bar_x && e.button.x <= static_cast<int>(progress_bar_x + progress_bar_w)) {
+              float click_x = static_cast<float>(e.button.x) - progress_bar_x;
+              float progress = std::clamp(click_x / progress_bar_w, 0.0f, 1.0f);
+              player_.seek(progress);
+            }
+          }
+        }
         break;
 
       case SDL_EVENT_MOUSE_WHEEL:
@@ -59,7 +85,7 @@ public:
     drawMedia(win_w, win_h);
 
     if (player_.isActive()) {
-      drawBottomBar(win_w, win_h);
+      drawControlBar(win_w, win_h);
     }
   }
 
@@ -69,6 +95,80 @@ private:
     // This forces the window to maintain the media's aspect ratio during resize
     float ratio = static_cast<float>(media_w) / static_cast<float>(media_h);
     SDL_SetWindowAspectRatio(window_, ratio, ratio);
+  }
+
+  void drawControlBar(int win_w, int win_h) {
+    constexpr float bar_height = 48.0f;
+    constexpr float bar_margin = 12.0f;
+    constexpr float bar_radius = 8.0f;
+    constexpr float progress_bar_height = 4.0f;
+    constexpr float padding = 12.0f;
+    constexpr float time_width = 60.0f;
+    constexpr float control_bar_max_width = 600.0f;
+
+    // Calculate bar width (centered, max width)
+    float bar_width = std::min(static_cast<float>(win_w) - bar_margin * 2.0f, control_bar_max_width);
+    float bar_x = (static_cast<float>(win_w) - bar_width) * 0.5f;
+    float bar_y = static_cast<float>(win_h) - bar_height - bar_margin;
+
+    ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
+
+    // Draw rounded rectangle background
+    ImU32 bg_color = IM_COL32(30, 30, 30, 230);
+    draw_list->AddRectFilled(
+        ImVec2(bar_x, bar_y),
+        ImVec2(bar_x + bar_width, bar_y + bar_height),
+        bg_color,
+        bar_radius
+    );
+
+    // Time text
+    std::string current_time = player_.getProgressString();
+    size_t sep_pos = current_time.find(" / ");
+    std::string cur = (sep_pos != std::string::npos) ? current_time.substr(0, sep_pos) : current_time;
+    std::string dur = (sep_pos != std::string::npos) ? current_time.substr(sep_pos + 3) : "00:00";
+
+    ImVec2 cur_text_size = ImGui::CalcTextSize(cur.c_str());
+    ImVec2 dur_text_size = ImGui::CalcTextSize(dur.c_str());
+
+    // Progress bar area (between time labels)
+    float progress_bar_x = bar_x + padding + time_width;
+    float progress_bar_w = bar_width - padding * 2.0f - time_width * 2.0f;
+    float progress_bar_y = bar_y + (bar_height - progress_bar_height) * 0.5f;
+
+    // Draw progress bar background
+    ImU32 progress_bg = IM_COL32(80, 80, 80, 255);
+    draw_list->AddRectFilled(
+        ImVec2(progress_bar_x, progress_bar_y),
+        ImVec2(progress_bar_x + progress_bar_w, progress_bar_y + progress_bar_height),
+        progress_bg,
+        progress_bar_height * 0.5f
+    );
+
+    // Draw progress bar fill
+    float progress = player_.getProgress();
+    float fill_width = progress_bar_w * progress;
+    ImU32 progress_fill = IM_COL32(255, 255, 255, 255);
+    draw_list->AddRectFilled(
+        ImVec2(progress_bar_x, progress_bar_y),
+        ImVec2(progress_bar_x + fill_width, progress_bar_y + progress_bar_height),
+        progress_fill,
+        progress_bar_height * 0.5f
+    );
+
+    // Draw current time (left) - vertically centered
+    draw_list->AddText(
+        ImVec2(bar_x + padding, bar_y + (bar_height - cur_text_size.y) * 0.5f),
+        IM_COL32(255, 255, 255, 255),
+        cur.c_str()
+    );
+
+    // Draw duration (right) - vertically centered
+    draw_list->AddText(
+        ImVec2(bar_x + bar_width - padding - dur_text_size.x, bar_y + (bar_height - dur_text_size.y) * 0.5f),
+        IM_COL32(255, 255, 255, 255),
+        dur.c_str()
+    );
   }
 
   void drawMedia(int win_w, int win_h) {
@@ -95,27 +195,6 @@ private:
           ImVec2(dx, dy),
           ImVec2(dx + dw, dy + dh));
     }
-  }
-
-  void drawBottomBar(int win_w, int win_h) {
-    ImGui::SetNextWindowPos(ImVec2(10, win_h - 70));
-    ImGui::SetNextWindowSize(ImVec2(win_w - 20, 60));
-    ImGui::Begin("Controls", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
-
-    // Progress bar
-    float progress = player_.getProgress();
-    if (ImGui::SliderFloat("##Progress", &progress, 0.0f, 1.0f, player_.getProgressString().c_str())) {
-      player_.seek(progress);
-    }
-
-    // Volume
-    float volume = player_.getVolume();
-    ImGui::SetNextItemWidth(100);
-    if (ImGui::SliderFloat("Volume", &volume, 0.0f, 1.5f, "%.2f")) {
-      player_.setVolume(volume);
-    }
-
-    ImGui::End();
   }
 
   MediaPlayer& player_;
