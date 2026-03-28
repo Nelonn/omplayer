@@ -320,12 +320,12 @@ public:
 
   void tickVideo() {
     if (has_audio_) {
-      if (audio_sink_.started())
+      if (audio_sink_.started()) {
         audio_sink_.updateClock();
-      else
-        clock_.wallTick(); // Advance while buffering
+      }
     } else {
-      clock_.wallTick();
+      // For video-only, ensure we are running.
+      if (clock_.isPaused() && !paused_) clock_.resume();
     }
     video_renderer_.tick(video_frame_queue_, clock_);
   }
@@ -641,7 +641,7 @@ private:
   void audioDecodeLoop() {
     while (!stop_requested_) {
       auto maybe_pkt = audio_packet_queue_.blockingPop();
-      if (!maybe_pkt) break; // aborted
+      if (!maybe_pkt) break;
 
       auto result = audio_decoder_->decode(*maybe_pkt);
       if (result.isErr()) continue;
@@ -664,8 +664,6 @@ private:
         auto pcm = detail::normaliseBits(
             detail::interleave(s), s.format.bits_per_sample);
 
-        // Push PCM to the sink.  The sink's own ringbuffer provides
-        // back-pressure; check stop_requested_ between partial writes.
         size_t written = 0;
         while (written < pcm.size() && !stop_requested_) {
           written += audio_sink_.pushPcm(
@@ -676,10 +674,10 @@ private:
 
         const double pts_sec = static_cast<double>(frame.pts) *
                                audio_time_base_.num / audio_time_base_.den;
-        const double duration = static_cast<double>(s.nb_samples) / s.format.sample_rate;
 
         audio_sink_.tickBuffering(pts_sec);
-        audio_sink_.last_stream_pts_sec_.store(pts_sec + duration, std::memory_order_release);
+
+        audio_sink_.updateClock();
       }
     }
   }
@@ -779,6 +777,9 @@ private:
 
     if (demuxer_->seek(target_ns, ref) == OM_SUCCESS)
       clock_.reset(target_secs);
+
+    if (audio_decoder_thread_.joinable()) audio_decoder_thread_.join();
+    if (video_decoder_thread_.joinable()) video_decoder_thread_.join();
 
     // 5. Re-launch decoder threads (they had exited after abort).
     if (has_audio_)

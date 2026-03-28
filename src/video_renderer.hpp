@@ -47,37 +47,29 @@ public:
     if (!device_) return false;
 
     const double master = clock.masterSeconds();
-    bool uploaded = false;
-    std::optional<VideoFrame> best_frame;
 
-    // Process frames until we find the most recent one that is due.
     while (true) {
       auto front_pts = queue.frontPtsSec();
       if (!front_pts) break;
 
       const double diff = *front_pts - master;
-      if (diff > kFutureThresh) break;
+
+      if (diff > kFutureThresh) break; // too early, wait
 
       auto opt = queue.tryPop();
       if (!opt) break;
 
       if (diff < -kDropThresh) {
         dropped_count_++;
-        continue;
+        continue; // late, drop and try next
       }
 
-      // Keep this frame as the best candidate to display.
-      // If multiple frames are due, we only care about the latest one.
-      best_frame = std::move(opt);
+      // This frame is due — display it and stop for this tick
+      uploadFrame(*opt);
+      last_pts_sec_ = opt->pts_sec;
+      return true;
     }
-
-    if (best_frame) {
-      uploadFrame(*best_frame);
-      last_pts_sec_ = best_frame->pts_sec;
-      uploaded = true;
-    }
-
-    return uploaded;
+    return false;
   }
 
   auto texture() -> SDL_GPUTexture* {

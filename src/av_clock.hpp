@@ -1,8 +1,6 @@
 #pragma once
 
-#include <atomic>
 #include <chrono>
-#include <cstdint>
 #include <mutex>
 #include <openmedia/format_api.hpp>
 
@@ -13,85 +11,72 @@ using TimePoint = std::chrono::time_point<SteadyClock>;
 // ---------------------------------------------------------------------------
 // AVClock
 //
-// Optimized master clock that always interpolates between updates using
-// the wall clock. This ensures the clock is "alive" and moves smoothly
-// even if master updates (audio or manual) are infrequent.
+// Strictly follows the master updates. Interpolates between updates using
+// the wall clock to ensure smooth movement between ticks.
 // ---------------------------------------------------------------------------
 class AVClock {
 public:
-  enum class Mode {
-    AUDIO,
-    WALL,
-  };
+  enum class Mode { AUDIO, WALL };
 
   AVClock() = default;
 
-  void setMode(Mode m) noexcept {
-    mode_ = m;
-  }
-
-  auto mode() const noexcept -> Mode { return mode_; }
+  void setMode(Mode m) noexcept { mode_ = m; }
+  Mode mode() const noexcept { return mode_; }
 
   void reset(double seconds = 0.0) noexcept {
     std::lock_guard<std::mutex> lock(mtx_);
-    wall_ref_pts_sec_ = seconds;
-    wall_ref_time_ = SteadyClock::now();
-    pts_sec_.store(seconds, std::memory_order_release);
-    paused_ = false;
+    base_pts_ = seconds;
+    wall_ref_ = SteadyClock::now();
+    paused_ = true; // Start paused; wait for resume or audio start
   }
 
   void pause() noexcept {
     std::lock_guard<std::mutex> lock(mtx_);
     if (paused_) return;
-    double current = internalMasterSeconds();
-    pts_sec_.store(current, std::memory_order_release);
-    wall_ref_pts_sec_ = current;
+    base_pts_ = internalMasterSeconds();
     paused_ = true;
   }
 
   void resume() noexcept {
     std::lock_guard<std::mutex> lock(mtx_);
     if (!paused_) return;
-    wall_ref_time_ = SteadyClock::now();
+    wall_ref_ = SteadyClock::now();
     paused_ = false;
+  }
+
+  bool isPaused() const noexcept {
+    std::lock_guard<std::mutex> lock(mtx_);
+    return paused_;
   }
 
   void setAudioSeconds(double seconds) noexcept {
     std::lock_guard<std::mutex> lock(mtx_);
-    pts_sec_.store(seconds, std::memory_order_release);
-    // When we get a master update, we reset the wall-clock reference
-    // so interpolation continues from this new exact point.
-    if (!paused_) {
-      wall_ref_pts_sec_ = seconds;
-      wall_ref_time_ = SteadyClock::now();
-    }
+    base_pts_ = seconds;
+    wall_ref_ = SteadyClock::now();
+    // If we are getting audio updates, ensure we are not "paused"
+    // so that interpolation works between these updates.
+    paused_ = false;
   }
 
-  void wallTick() noexcept {
-    // wallTick is now mostly a no-op as masterSeconds() interpolates,
-    // but we update the atomic for consistency with external observers.
-    if (paused_) return;
-    pts_sec_.store(masterSeconds(), std::memory_order_release);
-  }
+  // Legacy wallTick - no longer strictly needed for movement but kept for API compatibility.
+  void wallTick() noexcept {}
 
-  auto masterSeconds() const noexcept -> double {
+  double masterSeconds() const noexcept {
     std::lock_guard<std::mutex> lock(mtx_);
     return internalMasterSeconds();
   }
 
 private:
-  auto internalMasterSeconds() const noexcept -> double {
-    if (paused_) return pts_sec_.load(std::memory_order_acquire);
+  double internalMasterSeconds() const noexcept {
+    if (paused_) return base_pts_;
     const auto now = SteadyClock::now();
-    const double elapsed = std::chrono::duration<double>(now - wall_ref_time_).count();
-    return wall_ref_pts_sec_ + elapsed;
+    const double elapsed = std::chrono::duration<double>(now - wall_ref_).count();
+    return base_pts_ + elapsed;
   }
 
-  std::atomic<double> pts_sec_ {0.0};
-  Mode mode_ {Mode::WALL};
-
-  double wall_ref_pts_sec_ = 0.0;
-  TimePoint wall_ref_time_ = SteadyClock::now();
-  bool paused_ = false;
+  double    base_pts_ = 0.0;
+  TimePoint wall_ref_ = SteadyClock::now();
+  bool      paused_   = true;
+  Mode      mode_     = Mode::WALL;
   mutable std::mutex mtx_;
 };

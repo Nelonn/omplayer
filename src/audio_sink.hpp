@@ -114,10 +114,8 @@ public:
     if (ratio >= kStartThresh) {
       {
         std::lock_guard<std::mutex> lock(sync_mutex_);
-        if (start_pts_ < 0) start_pts_ = current_seconds;
+        if (start_pts_ < 0) start_pts_ = current_seconds; // anchor for updateClock
       }
-      last_stream_pts_sec_.store(current_seconds, std::memory_order_release);
-      clock_->setAudioSeconds(current_seconds);
       SDL_ResumeAudioDevice(device_);
       started_ = true;
       SDL_Log("[AudioSink] Playback started (fill=%.1f%%)", ratio * 100.0);
