@@ -1,0 +1,7 @@
+/third_party/external
+cmake-build-**
+.idea
+.gitdeps
+
+# Common
+.DS_Store

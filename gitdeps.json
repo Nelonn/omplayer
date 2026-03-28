@@ -1,0 +1,18 @@
+{
+  "third_party/external/freetype": {
+    "url": "https://gitlab.freedesktop.org/freetype/freetype",
+    "commit": "07d8d50a63a45a7446b2fc44732baecc685f3e4c"
+  },
+  "third_party/external/lunasvg": {
+    "url": "https://github.com/sammycage/lunasvg",
+    "commit": "b350c01cb09b48f1e894463dcb54d1b46d407162"
+  },
+  "third_party/external/OpenMedia": {
+    "url": "https://github.com/Nelonn/OpenMedia",
+    "commit": "48d23a88619fcb6399cbb9e92baecdf0bd1e6679"
+  },
+  "third_party/external/SDL3": {
+    "url": "https://github.com/libsdl-org/SDL",
+    "commit": "225fb12ae13b70689bcb8c0b42bf061120fefcc4"
+  }
+}
