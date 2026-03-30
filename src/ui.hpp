@@ -73,6 +73,16 @@ public:
         }
         break;
 
+      case SDL_EVENT_AUDIO_DEVICE_ADDED:
+
+        break;
+
+      case SDL_EVENT_AUDIO_DEVICE_REMOVED:
+        break;
+
+      case SDL_EVENT_AUDIO_DEVICE_FORMAT_CHANGED:
+        break;
+
       default: break;
     }
     return true;

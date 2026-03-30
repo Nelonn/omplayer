@@ -19,6 +19,8 @@ add_subdirectory(third_party/external/OpenMedia)
 add_subdirectory(third_party/external/SDL3)
 add_subdirectory(third_party/imgui)
 
+add_subdirectory(audiokit)
+
 add_executable(omplayer WIN32
         src/audio_sink.hpp
         src/av_clock.hpp
@@ -26,10 +28,9 @@ add_executable(omplayer WIN32
         src/main.cpp
         src/media_player.hpp
         src/ring_buffer.hpp
-        src/SincResampler.cpp
-        src/SincResampler.h
         src/ui.hpp
         src/video_renderer.hpp
 )
-target_link_libraries(omplayer PRIVATE SDL3::SDL3 OpenMedia::OpenMedia ImGui)
+target_link_libraries(omplayer PRIVATE audiokit SDL3::SDL3 OpenMedia::OpenMedia ImGui)
 target_compile_definitions(omplayer PRIVATE SDL_MAIN_USE_CALLBACKS)
+target_include_directories(omplayer PRIVATE src)
